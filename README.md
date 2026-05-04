@@ -1,47 +1,69 @@
-<p align="center">
-  <img src="frontend/src/assets/logo.png" alt="PipelineAI Logo" width="200" />
-</p>
+# 🛡️ PipelineAI: Multi-Agent CI/CD Guardrail
 
-# 🚀 PipelineAI: The Architectural Forecaster for CI/CD
+**A predictive, autonomous gatekeeper for software engineering pipelines.**
 
-**Predict failures locally, before they ever reach the cloud.**
-
-PipelineAI is a zero-config, predictive developer-experience layer designed for modern engineering teams. It analyzes code changes in real-time within your IDE to identify high-risk commits, saving developer focus, reducing CI/CD costs, and lowering the carbon footprint of software delivery.
+PipelineAI intercepts GitHub Pull Requests in real-time, utilizing a deterministic multi-agent engine to analyze code changes for semantic risk, historical regressions, and adversarial failure before they ever reach the CI/CD runner.
 
 ---
 
-### 🌟 Why PipelineAI?
-*   **Zero-Config Local Intel**: Installs in seconds. Connects automatically to your local working directory.
-*   **Explainable Risk (XAI)**: Don't just see a score—see *why*. Integrated **SHAP** charts reveal the exact features (churn, timing, complexity) driving every prediction.
-*   **AI Mentor**: Receives context-aware architectural advice powered by sophisticated heuristics (and LLM-ready) to remediate risks instantly.
-*   **VCS Native**: Automated risk reporting directly into **GitLab/GitHub** Merge Request comments.
-*   **Premium UX**: A "Command Center" dashboard designed for high-performance engineering teams.
+## 📖 About the Project
+
+In modern software engineering, traditional CI/CD pipelines are reactive and slow. Developers push code and wait upwards of 30 minutes for integration tests to finish, only to discover a catastrophic failure. Worse, logic regressions and security vulnerabilities often slip past human code reviewers, causing massive production outages.
+
+**PipelineAI solves this by shifting risk assessment entirely to the left.**
+
+Acting as an autonomous security gatekeeper, PipelineAI intercepts Pull Requests the exact millisecond they are opened. It mathematically guarantees that dangerous code is physically blocked from being merged, saving organizations thousands of hours in compute time and preventing devastating regressions.
 
 ---
 
-### 🛠️ Quick Start
-1. **Clone & Setup**:
-   ```bash
-   python -m pip install -r backend/requirements.txt
-   cd frontend && npm install
-   ```
-2. **Start the Engine**:
-   - Backend: `python backend/main.py`
-   - Frontend: `npm start`
-3. **Experience the Magic**: Navigate to `http://localhost:3000/dashboard?demo=high` to see a high-risk prediction lifecycle, complete with SHAP values and AI Mentor suggestions.
+## 🧠 The Multi-Agent Engine
+
+PipelineAI is powered by a high-performance, asynchronous FastAPI backend that delegates tasks to three core deterministic agents:
+
+1. **🗺️ The Impact Agent (Semantic Blast Radius):** 
+   Scans the Abstract Syntax Tree (AST) and modified file paths to detect critical infrastructure changes (e.g., `auth`, `parser`, `config`).
+2. **📚 The Memory Agent (Historical Lexicon):** 
+   Acts as the institutional memory of the engineering team, cross-referencing incoming code against historical outage patterns to prevent known regressions.
+3. **🔬 The Simulation Agent (Adversarial Chaos):** 
+   Simulates chaos engineering by injecting malformed, adversarial payloads into a sandbox to guarantee the code will fail gracefully in production.
+4. **⚖️ The Risk Synthesis Agent (The Judge):** 
+   Aggregates the heuristics from the other three agents to issue a final, deterministic verdict (`ALLOW` or `BLOCK`).
 
 ---
 
-### 🏗️ Technology Stack
-*   **Intelligence**: Scikit-Learn (Random Forest/Ensemble), SHAP (XAI), Heuristic Intelligence
-*   **Backend**: FastAPI, SQLAlchemy, Pydantic, Joblib
-*   **Frontend**: React, Material UI (Premium Theme), Tailwind CSS (Landing)
-*   **Monitoring**: Real-time event auditing and role-based access control.
+## 🏗️ Technical Architecture
+
+PipelineAI uses a hybrid cloud-local deployment strategy for absolute security and speed:
+
+*   **Trigger:** GitHub Webhooks (Payload triggered on `pull_request` events).
+*   **Security:** Cryptographic Webhook Validation via `X-Hub-Signature-256` HMAC SHA-256.
+*   **Tunneling:** `Smee.io` reverse proxy allows the local backend to securely receive cloud webhooks through corporate firewalls.
+*   **Backend:** Stateless, event-driven `FastAPI` server utilizing asynchronous Background Tasks to guarantee instant `200 OK` responses to GitHub.
+*   **Action:** GitHub Commit Status REST API physically injects UI feedback (`✅ ALLOW` or `❌ BLOCK`) and locks the target repository's merge button.
 
 ---
 
-### 🛡️ Enterprise Ready
-PipelineAI is built with security at its core, featuring comprehensive **Role-Based Access Control (RBAC)** and **Audit Logging** to ensure compliance in even the most regulated environments.
+## 🚀 Quick Start (Demo Mode)
 
----
-**Build Smarter. Push Greener. Ship with Certainty.**
+To run the PipelineAI Guardrail locally:
+
+**1. Configure Environment**
+Create a `.env` file in the `backend/` directory:
+```env
+GITHUB_TOKEN=your_personal_access_token
+WEBHOOK_SECRET=your_webhook_secret (optional)
+```
+
+**2. Start the Backend Server**
+```bash
+cd backend
+python guardrail_main.py
+```
+
+**3. Start the Secure Tunnel**
+In a new terminal, open your Smee.io tunnel:
+```bash
+npx smee-client --url https://smee.io/YOUR_WEBHOOK_URL --target http://127.0.0.1:8000/webhook
+```
+
+Open a Pull Request on your connected GitHub repository and watch the terminal agents execute in real-time!
