@@ -1,0 +1,17 @@
+PipelineAI Guardrail -- End-to-End Performance Benchmark
+Python 3.11.0 | perf_counter resolution 100.0 ns | host win32
+claim under test: 'risk verdicts in <2 seconds'  (evaluated against p95)
+
+=== MODE 4: COMPLETE REAL PATH  (real GitHub x3 + real LLM, forced BLOCK) ===
+  n=5 clean samples (0 LLM fallbacks excluded).
+  Every network call real: set_pending POST + files GET + publish_verdict POST + remediation LLM.
+  One synthetic `except:` file appended to the real PR diff to force a BLOCK deterministically.
+  GitHub status POSTs return 403 (token lacks repo:status) -- real round trips; a 201 may be modestly slower.
+  samples : 5
+  min     :   2259.3 ms
+  avg     :   2991.2 ms   (stdev 1323.4)
+  p50     :   2327.8 ms
+  p95     :   5636.4 ms
+  p99     :   5636.4 ms
+  max     :   5636.4 ms
+  --> p95 >= 2000 ms : <2s CLAIM NOT SUPPORTED

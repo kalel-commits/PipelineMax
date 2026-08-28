@@ -35,3 +35,9 @@ yarn-error.log
 /db/
 backend/db/
 backend/ml/models/__pycache__/
+
+# Guardrail runtime state (regression lexicon persisted by MemoryAgent)
+backend/data/
+
+# Benchmark scratch files (lexicons, tunnel logs); keep results/ and the report
+backend/benchmarks/_*

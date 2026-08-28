@@ -1,0 +1,26 @@
+[smee-check] channel: https://smee.io/3O7L0cTRWjHXaPZV
+[smee-check] WEBHOOK_SECRET set on backend: False
+[smee-check] backend up on 8099
+[smee-check] POST to smee channel -> HTTP 200
+
+---- smee-client log ----
+Connected to https://smee.io/3O7L0cTRWjHXaPZV
+Forwarding https://smee.io/3O7L0cTRWjHXaPZV to http://127.0.0.1:8099/webhook
+POST http://127.0.0.1:8099/webhook - 200
+
+---- backend log ----
+INFO:     Started server process [15628]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8099 (Press CTRL+C to quit)
+INFO:     127.0.0.1:1215 - "GET /health HTTP/1.1" 200 OK
+INFO:     152.58.17.142:14886 - "POST /webhook HTTP/1.1" 200 OK
+[GitHubClient] Failed to set commit status: set_commit_status: invalid or missing GitHub token
+--- GitHub Check Run ERROR: smee-check-user/smee-check-repo@0000000: Repo/PR not found: get_pull_request_files: repository, PR, or file not found ---
+[GitHubClient] Failed to set commit status: set_commit_status: invalid or missing GitHub token
+---------------------
+[smee-check] smee-client connected + forwarded : True
+[smee-check] backend accepted webhook (200)     : True
+[smee-check] event reached the agent pipeline   : True
+
+[smee-check] PASS: pull_request event delivered through a live Smee.io channel, accepted by the guardrail, and processed by the agent pipeline.

@@ -25,7 +25,7 @@ PipelineAI is powered by a high-performance, asynchronous FastAPI backend that d
 2. **📚 The Memory Agent (Historical Lexicon):** 
    Acts as the institutional memory of the engineering team, cross-referencing incoming code against historical outage patterns to prevent known regressions.
 3. **🔬 The Simulation Agent (Adversarial Chaos):** 
-   Simulates chaos engineering by injecting malformed, adversarial payloads into a sandbox to guarantee the code will fail gracefully in production.
+   Deterministically scans the diff for code shapes known to fail under malformed/adversarial input (bare `except:`, `eval`/`exec`, shell/SQL injection, unchecked payload indexing). No PR code is executed — see [backend/README.md](backend/README.md#what-adversarial-testing-means-here) for why.
 4. **⚖️ The Risk Synthesis Agent (The Judge):** 
    Aggregates the heuristics from the other three agents to issue a final, deterministic verdict (`ALLOW` or `BLOCK`).
 
@@ -48,11 +48,13 @@ PipelineAI uses a hybrid cloud-local deployment strategy for absolute security a
 To run the PipelineAI Guardrail locally:
 
 **1. Configure Environment**
-Create a `.env` file in the `backend/` directory:
+Create a `.env` file in the `backend/` directory (see `backend/.env.example`):
 ```env
 GITHUB_TOKEN=your_personal_access_token
-WEBHOOK_SECRET=your_webhook_secret (optional)
+WEBHOOK_SECRET=your_webhook_secret
+OPENAI_API_KEY=your_openai_key   # optional — enables AI-generated remediation suggestions
 ```
+Without `WEBHOOK_SECRET`, incoming webhooks are accepted unverified — fine for local testing, not for anything internet-reachable. Without `OPENAI_API_KEY`, BLOCK verdicts still fire correctly; suggestions fall back to the static analyzers' own recommendation text instead of an LLM-authored one.
 
 **2. Start the Backend Server**
 ```bash
@@ -67,3 +69,23 @@ npx smee-client --url https://smee.io/YOUR_WEBHOOK_URL --target http://127.0.0.1
 ```
 
 Open a Pull Request on your connected GitHub repository and watch the terminal agents execute in real-time!
+
+---
+
+## ✅ Testing
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest -v
+```
+
+37 tests cover signature verification, the AST-based impact analysis, the
+deterministic adversarial pattern scanner, the persistent regression memory
+(including a simulated-restart persistence check), the risk-aggregation logic,
+and the OpenAI remediation client's error handling (missing key, timeout,
+malformed response). GitHub and OpenAI are mocked at the network boundary;
+everything else runs against real code paths with real assertions.
+
+See [backend/README.md](backend/README.md) for the full architecture, setup,
+and known limitations.

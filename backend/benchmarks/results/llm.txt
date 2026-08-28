@@ -1,0 +1,17 @@
+PipelineAI Guardrail -- End-to-End Performance Benchmark
+Python 3.11.0 | perf_counter resolution 100.0 ns | host win32
+claim under test: 'risk verdicts in <2 seconds'  (evaluated against p95)
+  [llm mode] pacing 6s between calls to stay under the provider's rate limit (~10 calls -> ~1 min)
+
+=== MODE 3: REAL LLM API INCLUDED  (BLOCK verdict full analysis incl. real remediation call, GitHub stubbed) ===
+  Provider: Gemini (OpenAI-compat), model: gemini-flash-lite-latest. all real LLM responses.
+  Each sample = HMAC + parse + 4 agents + store_failure + ONE real LLM call (no GitHub).
+  NOTE: this LLM call fires only on BLOCK and never affects the ALLOW/BLOCK gate.
+  samples : 10
+  min     :   1239.8 ms
+  avg     :   1482.3 ms   (stdev 153.1)
+  p50     :   1491.3 ms
+  p95     :   1734.8 ms
+  p99     :   1734.8 ms
+  max     :   1734.8 ms
+  --> p95 < 2000 ms : <2s CLAIM SUPPORTED

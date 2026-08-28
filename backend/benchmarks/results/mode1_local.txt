@@ -1,0 +1,35 @@
+PipelineAI Guardrail -- End-to-End Performance Benchmark
+Python 3.11.0 | perf_counter resolution 100.0 ns | host win32
+claim under test: 'risk verdicts in <2 seconds'  (evaluated against p95)
+
+=== MODE 1: LOCAL / IN-PROCESS  (GitHub + OpenAI stubbed, zero-latency, no network) ===
+  15 rounds x 24 fixtures = 360 analyses. verdicts: 210 ALLOW / 150 BLOCK / 0 ERROR, expectation mismatches: 0
+  samples : 360
+  min     :      0.0 ms
+  avg     :      0.7 ms   (stdev 0.6)
+  p50     :      0.6 ms
+  p95     :      2.2 ms
+  p99     :      2.9 ms
+  max     :      3.7 ms
+  --> p95 < 2000 ms : <2s CLAIM SUPPORTED
+
+  per-stage mean (ms), local mode:
+    hmac_verify :   0.0069  (max 0.3632)
+    fetch       :   0.0014  (max 0.0157, n=360)
+    impact      :   0.3282  (max 2.2750, n=360)
+    sim         :   0.0627  (max 0.5488, n=360)
+    memory      :   0.0035  (max 0.0260, n=360)
+    publish     :   0.0044  (max 0.0618, n=360)
+    NOTE: 'fetch'/'publish' above are the in-process stub, NOT GitHub network time.
+          'risk_synth' includes impact+sim+memory (+ remediation fallback on BLOCK).
+
+=== MODE 1b: LOCAL END-TO-END THROUGH ASGI  (real /webhook route + BackgroundTask, GitHub stubbed) ===
+  7 rounds x 24 fixtures. Includes Starlette request/response + BackgroundTasks.
+  samples : 168
+  min     :      0.3 ms
+  avg     :      1.2 ms   (stdev 1.9)
+  p50     :      1.0 ms
+  p95     :      2.6 ms
+  p99     :      4.0 ms
+  max     :     24.5 ms
+  --> p95 < 2000 ms : <2s CLAIM SUPPORTED

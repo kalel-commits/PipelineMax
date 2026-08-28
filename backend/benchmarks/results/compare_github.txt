@@ -1,0 +1,36 @@
+GitHub-path A/B  --  real api.github.com, real production path, 5 real public PRs x 10 rounds
+
+
+=== BEFORE (fresh client/call + serial set_pending) ===
+  samples : 50
+  min     :   1607.1 ms
+  avg     :   1806.3 ms   (stdev 150.3)
+  p50     :   1771.1 ms
+  p95     :   2097.4 ms
+  p99     :   2287.2 ms
+  max     :   2287.2 ms
+  --> p95 >= 2000 ms : <2s CLAIM NOT SUPPORTED
+
+=== AFTER run 1 (pooled client + overlapped set_pending) ===
+  samples : 50
+  min     :    794.0 ms
+  avg     :    901.3 ms   (stdev 89.0)
+  p50     :    878.1 ms
+  p95     :   1119.0 ms
+  p99     :   1235.4 ms
+  max     :   1235.4 ms
+  --> p95 < 2000 ms : <2s CLAIM SUPPORTED
+
+=== AFTER run 2 (repeat, to show run-to-run drift) ===
+  samples : 50
+  min     :      1.5 ms
+  avg     :   1034.8 ms   (stdev 2740.9)
+  p50     :    846.8 ms
+  p95     :   1205.8 ms
+  p99     :  20024.8 ms
+  max     :  20024.8 ms
+  --> p95 < 2000 ms : <2s CLAIM SUPPORTED
+  p50 :   1771.1 ms ->    878.1 ms   (+50%)
+  p95 :   2097.4 ms ->   1119.0 ms   (+47%)
+  p99 :   2287.2 ms ->   1235.4 ms   (+46%)
+  avg :   1806.3 ms ->    901.3 ms   (+50%)

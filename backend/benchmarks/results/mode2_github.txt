@@ -1,0 +1,17 @@
+PipelineAI Guardrail -- End-to-End Performance Benchmark
+Python 3.11.0 | perf_counter resolution 100.0 ns | host win32
+claim under test: 'risk verdicts in <2 seconds'  (evaluated against p95)
+
+=== MODE 2: GITHUB API INCLUDED  (real api.github.com round trips) ===
+  12 rounds x 5 real public PRs = 60 analyses.
+  Retrieval (get_pull_request_files): REAL api.github.com (authenticated).
+  Commit-status writes (set_pending + publish_verdict, 2/analysis): REAL round trips but all 120 returned non-2xx (token lacks 'repo:status' scope) -- 403 may be marginally cheaper than 201.
+  Connection: single pooled httpx.AsyncClient reused across all 3 calls/analysis.
+  samples : 60
+  min     :    770.1 ms
+  avg     :    903.4 ms   (stdev 149.9)
+  p50     :    842.5 ms
+  p95     :   1257.8 ms
+  p99     :   1425.6 ms
+  max     :   1452.2 ms
+  --> p95 < 2000 ms : <2s CLAIM SUPPORTED
