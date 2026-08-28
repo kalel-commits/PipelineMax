@@ -70,6 +70,29 @@ npx smee-client --url https://smee.io/YOUR_WEBHOOK_URL --target http://127.0.0.1
 
 Open a Pull Request on your connected GitHub repository and watch the terminal agents execute in real-time!
 
+> **No frontend.** PipelineAI is a headless webhook service (`GET /`, `GET /health`,
+> `POST /webhook`). There is no dashboard, no login, no user accounts — the only
+> credential is the server-side `GITHUB_TOKEN` for the GitHub REST API.
+
+---
+
+## ☁️ Deployment (Render)
+
+The backend ships a Docker image that binds to `$PORT` and runs as non-root.
+
+1. **Render** → New → **Blueprint** → select this repo (uses [`render.yaml`](render.yaml)).
+   Or: New → Web Service → Runtime **Docker**, Root Directory **`backend`**,
+   Health Check Path **`/health`**.
+2. Set env vars in the service's **Environment** tab:
+   `WEBHOOK_SECRET` (required), `GITHUB_TOKEN` (required to post statuses),
+   and optionally `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL`.
+   **Do not set `PORT`** — Render injects it.
+3. In your GitHub repo → Settings → Webhooks → add
+   `https://<service>.onrender.com/webhook`, content type `application/json`,
+   secret = your `WEBHOOK_SECRET`, events = **Pull requests**.
+
+Full env-var table and behavior-if-missing: [backend/README.md](backend/README.md#environment-variables).
+
 ---
 
 ## ✅ Testing

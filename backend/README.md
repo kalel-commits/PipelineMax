@@ -4,6 +4,12 @@ FastAPI service that intercepts GitHub Pull Request webhooks and returns a
 deterministic ALLOW/BLOCK verdict as a commit status, before the PR reaches a
 human reviewer or a CI runner.
 
+**This service is headless — there is no frontend.** It exposes `GET /`,
+`GET /health`, and `POST /webhook`. You "use" it by pointing a GitHub webhook at
+`POST /webhook` and watching the commit status appear on your PRs. There is no
+user login/session/JWT anywhere in the codebase — the only credential is the
+server-side `GITHUB_TOKEN` used to call the GitHub REST API.
+
 ## Architecture
 
 ```
@@ -63,6 +69,40 @@ python guardrail_main.py
 
 Expose it to GitHub via a tunnel (e.g. `npx smee-client --url https://smee.io/<id> --target http://127.0.0.1:8000/webhook`)
 and point a repository webhook at that Smee URL for `pull_request` events.
+
+## Environment variables
+
+| Variable | Required? | Used by | If missing |
+|---|---|---|---|
+| `WEBHOOK_SECRET` | **Yes in production** (any public URL) | `verify_signature` in `guardrail_main.py` | **Demo mode**: signatures not verified, startup WARNING logged, `/health` reports `webhook_signature_enforced: false`. Never silently "secure". |
+| `GITHUB_TOKEN` | **Yes to post commit statuses**; optional for public-repo diff fetch | `GitHubClient` (`Authorization` header) | Public-repo diffs still fetch (60 req/hr). `set_commit_status` gets 403 → verdict computed & logged but **not posted to the PR**. Private repos → 404 → error status. |
+| `OPENAI_API_KEY` | No | `AIRemediation` | BLOCK verdicts still fire; the remediation suggestion falls back to each analyzer's own `recommendation` text instead of an LLM-authored one. |
+| `OPENAI_BASE_URL` | No | `AIRemediation` (OpenAI-compatible endpoint override) | Defaults to OpenAI's endpoint. |
+| `OPENAI_MODEL` | No | `AIRemediation` | Defaults to `gpt-4o-mini`. |
+| `AGENT_TIMEOUT_SECONDS` | No | `process_guardrail` | Defaults to `10`. Non-numeric value → falls back to `10`. |
+| `ALLOWED_ORIGINS` | No | CORS middleware in `guardrail_main.py` | No CORS granted (fine — the webhook flow is server-to-server). |
+| `PORT` | No (injected by Render/most PaaS) | Dockerfile `CMD`, and `__main__` | Falls back to `8000`. |
+
+`GITHUB_TOKEN` is **not** needed to *receive* a webhook — only to fetch diffs
+(private repos / rate limits) and to post the resulting status.
+
+## Deploy to Render (Docker)
+
+`backend/Dockerfile` builds a slim, non-root image whose `CMD` binds
+`uvicorn` to `0.0.0.0:$PORT` (Render injects `PORT`).
+
+- **Blueprint:** the repo-root `render.yaml` defines the service
+  (`dockerfilePath: backend/Dockerfile`, `dockerContext: backend`,
+  `healthCheckPath: /health`). Render dashboard → New → Blueprint.
+- **Manual:** New → Web Service → this repo → Runtime **Docker**, Root Directory
+  **`backend`**, Health Check Path **`/health`**. Add the env vars above in the
+  Environment tab.
+- GitHub webhook → `https://<service>.onrender.com/webhook`, content type
+  `application/json`, secret = your `WEBHOOK_SECRET`, event = *Pull requests*.
+
+The regression lexicon (`backend/data/regression_lexicon.json`) lives on the
+container's ephemeral disk — it survives restarts within a deploy but resets on
+redeploy. Fine for a demo; attach a Render disk if you need it to persist.
 
 ## Testing
 

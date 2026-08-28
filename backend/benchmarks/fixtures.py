@@ -26,7 +26,7 @@ def _clean_py_patch(func: str, n: int = 1) -> str:
     lines = [f"+def {func}_{i}(x):" for i in range(n)]
     body = [f"+    return x * {i + 2}" for i in range(n)]
     out = []
-    for h, bdy in zip(lines, body):
+    for h, bdy in zip(lines, body, strict=True):
         out.append(h)
         out.append(bdy)
     return _HUNK.format(a=1, b=1, c=1, d=2 * n) + "\n" + "\n".join(out) + "\n"

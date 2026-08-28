@@ -1,0 +1,23 @@
+# Keep the image small and runtime-only.
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Dev-only: benchmarks hit real external APIs and are never run in the container.
+benchmarks/
+tests/
+pytest.ini
+requirements-dev.txt
+
+# Local state / secrets (never baked into an image).
+.env
+.env.*
+!.env.example
+data/
+
+# Docs
+*.md

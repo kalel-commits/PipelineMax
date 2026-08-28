@@ -4,6 +4,7 @@ import hashlib
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException, Header
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from integrations.github_client import GitHubClient
@@ -20,6 +21,19 @@ load_dotenv()
 
 @asynccontextmanager
 async def lifespan(_app):
+    if not WEBHOOK_SECRET:
+        print(
+            "[Guardrail] WARNING: WEBHOOK_SECRET is not set. Incoming /webhook requests "
+            "are NOT signature-verified (demo mode). Set WEBHOOK_SECRET for any "
+            "internet-reachable deployment.",
+            flush=True,
+        )
+    if not GITHUB_TOKEN:
+        print(
+            "[Guardrail] NOTE: GITHUB_TOKEN is not set. PR diffs can still be fetched for "
+            "public repos (rate-limited), but ALLOW/BLOCK commit statuses cannot be posted.",
+            flush=True,
+        )
     yield
     await github_client.aclose()  # release the pooled GitHub connection on shutdown
 
@@ -33,7 +47,24 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 # OPENAI_API_KEY carries that provider's key and OPENAI_MODEL names its model.
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-AGENT_TIMEOUT_SECONDS = float(os.getenv("AGENT_TIMEOUT_SECONDS", "10"))
+
+try:
+    AGENT_TIMEOUT_SECONDS = float(os.getenv("AGENT_TIMEOUT_SECONDS", "10"))
+except ValueError:
+    AGENT_TIMEOUT_SECONDS = 10.0
+
+# Optional. Comma-separated list of browser origins allowed to call this API
+# cross-origin (e.g. a static status page hosted elsewhere). Unset -> no CORS is
+# granted (the webhook flow is server-to-server and never needs it). Never "*".
+ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+if ALLOWED_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=ALLOWED_ORIGINS,
+        allow_credentials=False,
+        allow_methods=["GET"],
+        allow_headers=["*"],
+    )
 
 # Wired once at startup; reused across requests.
 github_client = GitHubClient(token=GITHUB_TOKEN)
@@ -71,12 +102,22 @@ async def process_guardrail(payload: dict) -> None:
             print(f"[Guardrail] Failed to publish timeout status: {e}")
 
 
+@app.get("/")
+async def root():
+    return {
+        "service": "PipelineAI GitHub Guardrail",
+        "version": app.version,
+        "endpoints": {"health": "GET /health", "webhook": "POST /webhook", "docs": "GET /docs"},
+    }
+
+
 @app.get("/health")
 async def health():
     return {
         "status": "ok",
         "github_token_configured": bool(GITHUB_TOKEN),
         "webhook_secret_configured": bool(WEBHOOK_SECRET),
+        "webhook_signature_enforced": bool(WEBHOOK_SECRET),
         "ai_remediation_configured": remediation_ai.configured,
     }
 
@@ -94,7 +135,7 @@ async def handle_webhook(
     try:
         payload = await request.json()
     except Exception:
-        raise HTTPException(status_code=400, detail="Malformed JSON payload")
+        raise HTTPException(status_code=400, detail="Malformed JSON payload") from None
 
     if "pull_request" in payload and payload.get("action") in ["opened", "synchronize", "reopened"]:
         background_tasks.add_task(process_guardrail, payload)

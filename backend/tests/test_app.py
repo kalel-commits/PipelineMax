@@ -24,15 +24,62 @@ def app_client(monkeypatch, tmp_path):
     return TestClient(module.app), module
 
 
+@pytest.fixture
+def demo_client(monkeypatch, tmp_path):
+    """No WEBHOOK_SECRET -> demo mode (signatures not enforced)."""
+    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+    monkeypatch.setenv("WEBHOOK_SECRET", "")
+    monkeypatch.setenv("GITHUB_TOKEN", "")
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+
+    sys.modules.pop("guardrail_main", None)
+    module = importlib.import_module("guardrail_main")
+    module.memory_agent.store_path = str(tmp_path / "lexicon.json")
+    return TestClient(module.app), module
+
+
 def _sign(secret: str, body: bytes) -> str:
     return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+
+
+def test_root_endpoint(app_client):
+    client, _ = app_client
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert resp.json()["service"] == "PipelineAI GitHub Guardrail"
 
 
 def test_health_endpoint(app_client):
     client, _ = app_client
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json()["status"] == "ok"
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["webhook_signature_enforced"] is True
+
+
+def test_demo_mode_health_reports_signature_not_enforced(demo_client):
+    client, _ = demo_client
+    body = client.get("/health").json()
+    assert body["webhook_secret_configured"] is False
+    assert body["webhook_signature_enforced"] is False
+
+
+def test_demo_mode_webhook_accepts_unsigned_pull_request(demo_client, monkeypatch):
+    client, module = demo_client
+
+    async def fake_handle_pr_event(p):
+        return {"verdict": "ALLOW"}
+
+    monkeypatch.setattr(module.webhook_handler, "handle_pr_event", fake_handle_pr_event)
+    payload = {
+        "action": "opened",
+        "pull_request": {"number": 1, "head": {"sha": "abc123", "ref": "feature"}},
+        "repository": {"name": "repo", "owner": {"login": "owner"}},
+    }
+    resp = client.post("/webhook", json=payload)  # no X-Hub-Signature-256 header
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "accepted"
 
 
 def test_webhook_rejects_missing_signature(app_client):

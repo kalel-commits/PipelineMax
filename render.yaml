@@ -1,0 +1,31 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Deploy: Render dashboard -> New -> Blueprint -> pick this repo.
+# Secrets (sync: false) are NOT read from here; set them in the service's
+# Environment tab after the first deploy.
+services:
+  - type: web
+    name: pipelineai-guardrail
+    runtime: docker
+    plan: free
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # --- required for the guardrail to post commit statuses ---
+      - key: GITHUB_TOKEN
+        sync: false            # set in dashboard; needs the "repo:status" scope
+      # --- required for production webhook signature verification ---
+      - key: WEBHOOK_SECRET
+        sync: false            # same value you enter in the GitHub webhook settings
+      # --- optional: AI remediation text on BLOCK verdicts ---
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        sync: false            # e.g. https://generativelanguage.googleapis.com/v1beta/openai/
+      - key: OPENAI_MODEL
+        sync: false            # e.g. gpt-4o-mini or gemini-2.5-flash
+      # --- optional tuning ---
+      - key: AGENT_TIMEOUT_SECONDS
+        value: "10"
+      # PORT is injected by Render automatically — do not set it here.
