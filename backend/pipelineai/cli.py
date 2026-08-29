@@ -142,6 +142,7 @@ def _run_local(path: str, *, remediate: bool, quiet: bool) -> AnalysisResult:
 
     cfg = load_config()
     pipe = AnalysisPipeline(cfg)
+    t_wall = time.perf_counter()
     result = pipe.analyze_files(files, "", "", 0, f"local:{path}")
     if remediate and result.verdict == "BLOCK":
         t0 = time.perf_counter()
@@ -150,6 +151,7 @@ def _run_local(path: str, *, remediate: bool, quiet: bool) -> AnalysisResult:
         asyncio.run(pipe.risk.enrich(vd, {"id": 0, "files": files}))
         result.suggestion = vd["suggestion"]
         result.remediation_ms = (time.perf_counter() - t0) * 1000
+    result.total_ms = (time.perf_counter() - t_wall) * 1000
     return result
 
 
