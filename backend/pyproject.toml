@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pipelineai"
+version = "0.3.0"
+description = "PipelineAI — Multi-Agent GitHub Pull Request Guardrail (terminal-first)"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "httpx>=0.25.0",
+    "python-dotenv>=1.0.0",
+    "openai>=1.30.0",
+    "rich>=13.7",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0"]
+
+[project.scripts]
+pipelineai = "pipelineai.cli:app"
+
+[tool.setuptools]
+py-modules = ["guardrail_main"]
+
+[tool.setuptools.packages.find]
+include = ["pipelineai*", "agents*", "integrations*", "utils*", "benchmarks*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+testpaths = ["tests"]

@@ -6,14 +6,16 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+*.egg-info/
+build/
+dist/
 
-# Dev-only: benchmarks hit real external APIs and are never run in the container.
-benchmarks/
+# Dev-only
 tests/
-pytest.ini
 requirements-dev.txt
+benchmarks/results/
 
-# Local state / secrets (never baked into an image).
+# Local state / secrets (never baked into an image)
 .env
 .env.*
 !.env.example

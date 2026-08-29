@@ -1,114 +1,111 @@
-# 🛡️ PipelineAI: Multi-Agent CI/CD Guardrail
+# PipelineAI — Multi-Agent PR Guardrail
 
-**A predictive, autonomous gatekeeper for software engineering pipelines.**
+A terminal-first guardrail that analyzes a GitHub Pull Request and returns a
+deterministic **ALLOW / BLOCK** risk verdict as a commit status — before the PR
+reaches a reviewer or a CI runner.
 
-PipelineAI intercepts GitHub Pull Requests in real-time, utilizing a deterministic multi-agent engine to analyze code changes for semantic risk, historical regressions, and adversarial failure before they ever reach the CI/CD runner.
-
----
-
-## 📖 About the Project
-
-In modern software engineering, traditional CI/CD pipelines are reactive and slow. Developers push code and wait upwards of 30 minutes for integration tests to finish, only to discover a catastrophic failure. Worse, logic regressions and security vulnerabilities often slip past human code reviewers, causing massive production outages.
-
-**PipelineAI solves this by shifting risk assessment entirely to the left.**
-
-Acting as an autonomous security gatekeeper, PipelineAI intercepts Pull Requests the exact millisecond they are opened. It mathematically guarantees that dangerous code is physically blocked from being merged, saving organizations thousands of hours in compute time and preventing devastating regressions.
-
----
-
-## 🧠 The Multi-Agent Engine
-
-PipelineAI is powered by a high-performance, asynchronous FastAPI backend that delegates tasks to three core deterministic agents:
-
-1. **🗺️ The Impact Agent (Semantic Blast Radius):** 
-   Scans the Abstract Syntax Tree (AST) and modified file paths to detect critical infrastructure changes (e.g., `auth`, `parser`, `config`).
-2. **📚 The Memory Agent (Historical Lexicon):** 
-   Acts as the institutional memory of the engineering team, cross-referencing incoming code against historical outage patterns to prevent known regressions.
-3. **🔬 The Simulation Agent (Adversarial Chaos):** 
-   Deterministically scans the diff for code shapes known to fail under malformed/adversarial input (bare `except:`, `eval`/`exec`, shell/SQL injection, unchecked payload indexing). No PR code is executed — see [backend/README.md](backend/README.md#what-adversarial-testing-means-here) for why.
-4. **⚖️ The Risk Synthesis Agent (The Judge):** 
-   Aggregates the heuristics from the other three agents to issue a final, deterministic verdict (`ALLOW` or `BLOCK`).
-
----
-
-## 🏗️ Technical Architecture
-
-PipelineAI uses a hybrid cloud-local deployment strategy for absolute security and speed:
-
-*   **Trigger:** GitHub Webhooks (Payload triggered on `pull_request` events).
-*   **Security:** Cryptographic Webhook Validation via `X-Hub-Signature-256` HMAC SHA-256.
-*   **Tunneling:** `Smee.io` reverse proxy allows the local backend to securely receive cloud webhooks through corporate firewalls.
-*   **Backend:** Stateless, event-driven `FastAPI` server utilizing asynchronous Background Tasks to guarantee instant `200 OK` responses to GitHub.
-*   **Action:** GitHub Commit Status REST API physically injects UI feedback (`✅ ALLOW` or `❌ BLOCK`) and locks the target repository's merge button.
-
----
-
-## 🚀 Quick Start (Demo Mode)
-
-To run the PipelineAI Guardrail locally:
-
-**1. Configure Environment**
-Create a `.env` file in the `backend/` directory (see `backend/.env.example`):
-```env
-GITHUB_TOKEN=your_personal_access_token
-WEBHOOK_SECRET=your_webhook_secret
-OPENAI_API_KEY=your_openai_key   # optional — enables AI-generated remediation suggestions
 ```
-Without `WEBHOOK_SECRET`, incoming webhooks are accepted unverified — fine for local testing, not for anything internet-reachable. Without `OPENAI_API_KEY`, BLOCK verdicts still fire correctly; suggestions fall back to the static analyzers' own recommendation text instead of an LLM-authored one.
+$ pipelineai check acme/payment-service 142
 
-**2. Start the Backend Server**
+┌──────────────── PipelineAI  •  Multi-Agent PR Guardrail ────────────────┐
+│  PR #142  •  feature/payment-validation                                 │
+│  repository: acme/payment-service                                       │
+│                                                                        │
+│  AGENTS                                                                 │
+│    ✓ Impact Agent       17 files · 43 fns · AST 16/17          84 ms    │
+│    ✓ Simulation Agent   10 patterns · 612 lines · 2 findings   31 ms    │
+│    ✓ Memory Agent       14 known patterns · 1 match             3 ms    │
+│    ✓ Risk Agent         score 82/70 → BLOCK                     7 ms    │
+│                                                                        │
+│  RISK VERDICT   ● BLOCK    ████████████████████░░░░  82/100             │
+│                                                                        │
+│  FINDINGS                                                               │
+│    HIGH   sql_dynamic_query   SQL query built via f-string   db.py:41   │
+│    HIGH   memory_match        Regression pattern seen 3x     auth.py    │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+*(numbers above are illustrative; run `pipelineai check --local examples/vulnerable_sample.py` for a real one)*
+
+---
+
+## What it actually does
+
+| Stage | Implementation | Not |
+|---|---|---|
+| **Impact Agent** | `ast.parse()` of the added diff lines → the functions/classes a change defines; critical-path keyword match on file paths | data-flow / taint / type analysis |
+| **Simulation Agent** | 10 deterministic regex rules over added lines (`eval`/`exec`, `shell=True`, SQL string-building, `pickle`/`yaml.load`, `verify=False`, hardcoded secret, weak hash, bare `except`, unchecked payload access) | executing submitted code; fuzzing; a sandbox |
+| **Memory Agent** | occurrence counter keyed by `(category, rule_id)`, persisted to a JSON file; flags a pattern that BLOCKed a prior PR | a trained model |
+| **Risk Agent** | `compute_risk_score()` — a transparent weighted sum (0–100) of the above → `BLOCK` at ≥ 70 | an LLM making the decision |
+
+**The gate is 100% deterministic.** The optional LLM (`OPENAI_API_KEY`, any
+OpenAI-compatible endpoint) only writes the remediation paragraph attached to a
+BLOCK — *after* the verdict is published — and degrades to each rule's own
+recommendation text if it's absent or fails.
+
+The four "agents" are four Python classes run in a fixed sequence by one
+orchestrator (`pipelineai/pipeline.py`). They don't plan, use tools, or message
+each other — "agent" here means "a bounded analyzer with one job."
+
+---
+
+## Quick start
+
 ```bash
 cd backend
-python guardrail_main.py
+python -m venv .venv && . .venv/Scripts/activate     # source .venv/bin/activate on POSIX
+pip install -r requirements.txt
+pip install -e .                                      # puts `pipelineai` on PATH (optional)
+cp .env.example .env                                  # then fill in what you need
+
+pipelineai check --local examples/vulnerable_sample.py   # offline BLOCK demo
+pipelineai check --local examples/safe_sample.py          # offline ALLOW demo
+pipelineai check pallets/flask 6144                       # real PR from GitHub
+pipelineai doctor                                         # live preflight checks
 ```
 
-**3. Start the Secure Tunnel**
-In a new terminal, open your Smee.io tunnel:
+`check` / `analyze` exit **0** ALLOW · **1** BLOCK · **2** ERROR — drop it into CI.
+
+### As a webhook server (production)
+
 ```bash
-npx smee-client --url https://smee.io/YOUR_WEBHOOK_URL --target http://127.0.0.1:8000/webhook
+python -m pipelineai webhook          # FastAPI on 0.0.0.0:$PORT
 ```
 
-Open a Pull Request on your connected GitHub repository and watch the terminal agents execute in real-time!
-
-> **No frontend.** PipelineAI is a headless webhook service (`GET /`, `GET /health`,
-> `POST /webhook`). There is no dashboard, no login, no user accounts — the only
-> credential is the server-side `GITHUB_TOKEN` for the GitHub REST API.
-
----
-
-## ☁️ Deployment (Render)
-
-The backend ships a Docker image that binds to `$PORT` and runs as non-root.
-
-1. **Render** → New → **Blueprint** → select this repo (uses [`render.yaml`](render.yaml)).
-   Or: New → Web Service → Runtime **Docker**, Root Directory **`backend`**,
-   Health Check Path **`/health`**.
-2. Set env vars in the service's **Environment** tab:
-   `WEBHOOK_SECRET` (required), `GITHUB_TOKEN` (required to post statuses),
-   and optionally `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL`.
-   **Do not set `PORT`** — Render injects it.
-3. In your GitHub repo → Settings → Webhooks → add
-   `https://<service>.onrender.com/webhook`, content type `application/json`,
-   secret = your `WEBHOOK_SECRET`, events = **Pull requests**.
-
-Full env-var table and behavior-if-missing: [backend/README.md](backend/README.md#environment-variables).
+GitHub → repo Settings → Webhooks → `https://<host>/webhook`, content type
+`application/json`, secret = your `WEBHOOK_SECRET`, events = *Pull requests*.
+The server verifies `X-Hub-Signature-256` (HMAC SHA-256), de-duplicates on
+`X-GitHub-Delivery`, returns `200` immediately, and analyzes in the background.
 
 ---
 
-## ✅ Testing
+## Deploy (Render)
+
+Docker image, binds `$PORT`, non-root, health-checked at `/health`.
+
+1. Render → New → **Blueprint** → this repo ([`render.yaml`](render.yaml)) — or
+   New → Web Service → Docker, Root Directory `backend`, Health Check `/health`.
+2. Environment tab: `WEBHOOK_SECRET` (required for a public URL), `GITHUB_TOKEN`
+   (required to *post* statuses — needs "Commit statuses: write"), optional
+   `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL`. **Do not set `PORT`.**
+
+Full env-var table with behavior-if-missing: [backend/README.md](backend/README.md#environment-variables).
+
+There is **no frontend** — this is a headless CLI + webhook service.
+
+---
+
+## Testing
 
 ```bash
 cd backend
 pip install -r requirements-dev.txt
-pytest -v
+pytest -q          # 52 tests
+pipelineai doctor  # live: GitHub auth + token scope + LLM reachability
 ```
 
-37 tests cover signature verification, the AST-based impact analysis, the
-deterministic adversarial pattern scanner, the persistent regression memory
-(including a simulated-restart persistence check), the risk-aggregation logic,
-and the OpenAI remediation client's error handling (missing key, timeout,
-malformed response). GitHub and OpenAI are mocked at the network boundary;
-everything else runs against real code paths with real assertions.
-
-See [backend/README.md](backend/README.md) for the full architecture, setup,
-and known limitations.
+GitHub and OpenAI are mocked at the network boundary in the unit suite. Per-stage
+timings in `AnalysisPipeline` are real `perf_counter` measurements and are
+asserted (`verdict_ms == sum(stage timings)`). See
+[backend/README.md](backend/README.md) for the architecture, the risk-score
+formula, and known limitations.

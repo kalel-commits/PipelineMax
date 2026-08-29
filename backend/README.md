@@ -1,74 +1,89 @@
 # PipelineAI Guardrail — Backend
 
-FastAPI service that intercepts GitHub Pull Request webhooks and returns a
-deterministic ALLOW/BLOCK verdict as a commit status, before the PR reaches a
-human reviewer or a CI runner.
+Terminal-first guardrail that analyzes a GitHub Pull Request and returns a
+deterministic ALLOW/BLOCK risk verdict, before the PR reaches a human reviewer or
+a CI runner. Two entrypoints over one pipeline:
 
-**This service is headless — there is no frontend.** It exposes `GET /`,
-`GET /health`, and `POST /webhook`. You "use" it by pointing a GitHub webhook at
-`POST /webhook` and watching the commit status appear on your PRs. There is no
-user login/session/JWT anywhere in the codebase — the only credential is the
-server-side `GITHUB_TOKEN` used to call the GitHub REST API.
+- **`pipelineai` CLI** — the primary interface (`pipelineai check owner/repo 142`)
+- **`POST /webhook`** — the FastAPI server GitHub calls in production
+  (`python -m pipelineai webhook`)
+
+**No frontend, no user login/session/JWT.** The only credential is the
+server-side `GITHUB_TOKEN` for the GitHub REST API.
 
 ## Architecture
 
 ```
-GitHub PR event (webhook)
-        │  HMAC-SHA256 signature verified
-        ▼
-WebhookHandler.handle_pr_event()
-        │  GitHubClient.get_pull_request_files()  (real GitHub REST call)
-        ▼
-RiskAgent.evaluate_pr()
-        ├── ImpactAgent      — AST-based semantic blast-radius analysis
-        ├── SimulationAgent  — deterministic static "adversarial" pattern scan
-        └── MemoryAgent      — persistent (JSON-file) regression lexicon
-        │
-        ├── ALLOW  → done
-        └── BLOCK  → AIRemediation.suggest_fix() (OpenAI, optional)
-                      grounded strictly in the issues the static agents found
-        ▼
-GitHubChecksAPI.publish_verdict()  (real GitHub commit-status API call)
+pipelineai check owner/repo N        GitHub PR webhook (POST /webhook)
+        │                                    │  HMAC-SHA256 signature verified
+        │                                    │  X-GitHub-Delivery de-duplicated
+        └──────────────┬─────────────────────┘
+                       ▼
+   GitHubClient.get_pull_request_files()        (real GitHub REST call)
+                       ▼
+   ┌─ ImpactAgent      AST parse of added lines → touched functions/classes;
+   │                   critical-path detection (auth/config/parser/…)
+   ├─ SimulationAgent  10 deterministic rules over added diff lines
+   │                   (eval/exec, shell=True, SQL build, pickle/yaml.load,
+   │                    verify=False, hardcoded secret, weak hash, bare except…)
+   ├─ MemoryAgent      JSON-file regression lexicon; counts how often each
+   │                   (category, rule) has BLOCKed a PR before
+   └─ RiskAgent.synthesize()
+                       │  compute_risk_score() → 0-100  (transparent weighted sum)
+                       ▼
+             score ≥ 70  →  BLOCK          score < 70  →  ALLOW
+                       ▼
+   GitHubChecksAPI.publish_verdict()            (real commit-status API call)
+                       ▼
+   [BLOCK only, detached] MemoryAgent.store_failure() + AIRemediation.suggest_fix()
 ```
 
-The ALLOW/BLOCK gate is always deterministic — it never depends on the LLM.
-`AIRemediation` only enriches the human-readable explanation attached to a
-BLOCK, and gracefully falls back to the static analyzers' own recommendation
-text when no `OPENAI_API_KEY` is configured, or when the OpenAI call fails,
-times out, or returns something unparseable.
+The gate is **always deterministic** — `compute_risk_score` is a pure function of
+the analyzer outputs, and the LLM runs *after* the verdict is published. A flaky
+or absent LLM never changes ALLOW/BLOCK; the remediation just falls back to each
+rule's own recommendation text.
 
-## What "adversarial testing" means here
-
-This does **not** execute submitted PR code. Running arbitrary GitHub PR code,
-even sandboxed, is a real security undertaking (container isolation, network
-denial, resource limits) that's out of scope for this project. Instead,
-`SimulationAgent` deterministically scans the diff for code shapes that are
-known to fail under malformed/hostile input — bare `except:`, `eval`/`exec`,
-shell/SQL injection patterns, unchecked payload indexing — so the same input
-always produces the same verdict.
+The risk score, the threshold, and exactly what each analyzer does and doesn't do
+are spelled out under **[What the analysis is — and is not](#what-the-analysis-is--and-is-not)**.
 
 ## Setup
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate        # Windows
+.venv\Scripts\activate        # Windows  (source .venv/bin/activate on POSIX)
 pip install -r requirements.txt
+pip install -e .              # optional — puts `pipelineai` on PATH
 ```
 
-Copy `.env.example` to `.env` and fill in:
-- `GITHUB_TOKEN` — needed to fetch PR files and post commit statuses
-- `WEBHOOK_SECRET` — required for signature verification (without it, incoming
-  webhooks are accepted unverified — fine for local testing, not for production)
-- `OPENAI_API_KEY` — optional; enables AI-generated remediation suggestions
+Copy `.env.example` to `.env` (see the env-var table below).
 
-Run the server:
+## CLI
+
 ```bash
-python guardrail_main.py
-# or: uvicorn guardrail_main:app --reload
+pipelineai check   owner/repo 142         # fetch a real PR, run the pipeline, show the verdict panel
+pipelineai check   --local path/to/file   # analyze a local file as an all-added diff (offline)
+pipelineai check   owner/repo 142 --post  # also publish the commit status to GitHub
+pipelineai analyze owner/repo 142         # same analysis, JSON output (for scripts / CI)
+pipelineai webhook                        # run the FastAPI webhook server
+pipelineai benchmark                      # measured latency of the verdict path
+pipelineai doctor                         # live preflight: GitHub auth, token scope, LLM reachability
+pipelineai config                         # effective config, secrets redacted
+pipelineai version
 ```
 
-Expose it to GitHub via a tunnel (e.g. `npx smee-client --url https://smee.io/<id> --target http://127.0.0.1:8000/webhook`)
-and point a repository webhook at that Smee URL for `pull_request` events.
+`check` / `analyze` exit **0** on ALLOW, **1** on BLOCK, **2** on ERROR — usable
+as a CI gate. (Without `pip install -e .`, use `python -m pipelineai …`.)
+
+### Webhook server
+
+```bash
+python -m pipelineai webhook              # binds 0.0.0.0:$PORT (default 8000)
+```
+
+For local end-to-end testing, tunnel it to GitHub:
+`npx smee-client --url https://smee.io/<id> --target http://127.0.0.1:8000/webhook`
+then point a repo webhook (Pull requests events, content type `application/json`,
+secret = your `WEBHOOK_SECRET`) at the Smee URL.
 
 ## Environment variables
 
@@ -81,15 +96,18 @@ and point a repository webhook at that Smee URL for `pull_request` events.
 | `OPENAI_MODEL` | No | `AIRemediation` | Defaults to `gpt-4o-mini`. |
 | `AGENT_TIMEOUT_SECONDS` | No | `process_guardrail` | Defaults to `10`. Non-numeric value → falls back to `10`. |
 | `ALLOWED_ORIGINS` | No | CORS middleware in `guardrail_main.py` | No CORS granted (fine — the webhook flow is server-to-server). |
-| `PORT` | No (injected by Render/most PaaS) | Dockerfile `CMD`, and `__main__` | Falls back to `8000`. |
+| `PORT` | No (injected by Render/most PaaS) | Dockerfile `CMD`, `pipelineai webhook`, `__main__` | Falls back to `8000`. |
+
+The CLI reads the identical variables (via `pipelineai/config.py`), so `pipelineai check`
+and the webhook server behave the same.
 
 `GITHUB_TOKEN` is **not** needed to *receive* a webhook — only to fetch diffs
 (private repos / rate limits) and to post the resulting status.
 
 ## Deploy to Render (Docker)
 
-`backend/Dockerfile` builds a slim, non-root image whose `CMD` binds
-`uvicorn` to `0.0.0.0:$PORT` (Render injects `PORT`).
+`backend/Dockerfile` builds a slim, non-root image whose `CMD` is
+`python -m pipelineai webhook --host 0.0.0.0 --port $PORT` (Render injects `PORT`).
 
 - **Blueprint:** the repo-root `render.yaml` defines the service
   (`dockerfilePath: backend/Dockerfile`, `dockerContext: backend`,
@@ -111,22 +129,46 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-All GitHub and OpenAI calls are mocked at the network boundary in tests —
-nothing in the test suite makes a real external API call. `ImpactAgent`,
-`SimulationAgent`, and `MemoryAgent` are tested directly against crafted diffs
-with real assertions on the output, including a determinism check (same input
-→ identical output across repeated calls) and a persistence check (fresh
-`MemoryAgent` instance over the same file simulates a process restart).
+52 tests. GitHub and OpenAI are mocked at the network boundary — nothing in the
+suite makes a real external API call. Coverage: HMAC verification, delivery-ID
+de-duplication, the AST impact analysis, all 10 Simulation rules, the regression
+lexicon (determinism + simulated-restart persistence), `compute_risk_score`, the
+full `AnalysisPipeline` (per-stage timing is real and asserted), the OpenAI
+client's degradation paths, and the CLI (`check` exit codes, JSON schema, secret
+redaction).
+
+For a live check against real services: `pipelineai doctor`.
+
+## What the analysis is — and is not
+
+- **The four "agents" are four Python classes** (`ImpactAgent`, `SimulationAgent`,
+  `MemoryAgent`, `RiskAgent`) run in a fixed sequence by one orchestrator. They do
+  not plan, use tools, or talk to each other — "agent" here means "a bounded
+  analyzer with one job," not an LLM agent.
+- **"Semantic analysis" = `ast.parse` of the added diff lines** to extract the
+  function/class names a change defines, plus critical-path keyword matching on
+  file paths. It is not data-flow, taint, or type analysis.
+- **"Adversarial testing" = 10 deterministic regex rules** over added lines. **No
+  submitted code is ever executed.** It catches the code *shapes* that fail under
+  hostile input (injection sinks, unsafe deserialization, disabled TLS, …); it is
+  a targeted linter, not a fuzzer or a sandbox.
+- **"Regression detection" = an occurrence counter** keyed by `(category, rule_id)`,
+  persisted to JSON. The Memory Agent recognizes a pattern only after a prior PR
+  was BLOCKed on it. It does not train a model.
+- **AI is not in the decision.** `compute_risk_score` → threshold is the whole
+  gate. The LLM only writes the remediation paragraph attached to a BLOCK, after
+  the verdict is already published.
 
 ## Known limitations
 
-- **No sandboxed code execution.** "Adversarial testing" is static pattern
-  matching on the diff, not real execution against injected malformed input.
-- **AST parsing only succeeds when a diff hunk happens to be syntactically
-  standalone.** Partial hunks fall back to the filename/pattern heuristics;
-  `ImpactAgent` records `ast_parseable` per file so this is visible, not hidden.
-- **No database.** Regression history is a single JSON file
-  (`backend/data/regression_lexicon.json`), sufficient for a single-instance
-  deployment; it is not safe for concurrent writers.
-- **Unauthenticated webhooks if `WEBHOOK_SECRET` is unset.** Set it in any
-  deployment reachable from the internet.
+- **No sandboxed code execution** (see above).
+- **AST parsing only succeeds when a diff hunk is syntactically standalone.**
+  Partial hunks fall back to filename heuristics; `ImpactAgent` records
+  `ast_parseable` per file so this is visible, not hidden.
+- **Regex rules have false negatives** (e.g. multi-line injection sinks,
+  indirection through helpers) and can have false positives on unusual code.
+- **No database.** Regression history is one JSON file, single-writer.
+- **Delivery de-dup is in-memory and per-process** — a redeploy or a second
+  instance forgets recent delivery IDs. HMAC is the real anti-forgery control.
+- **Unauthenticated webhooks if `WEBHOOK_SECRET` is unset.** Set it for any
+  internet-reachable deployment.

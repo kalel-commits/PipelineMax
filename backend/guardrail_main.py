@@ -2,6 +2,7 @@ import os
 import hmac
 import hashlib
 import asyncio
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -85,6 +86,26 @@ def verify_signature(payload_body: bytes, signature_header: str) -> bool:
     return hmac.compare_digest(expected_signature, signature_header)
 
 
+# Bounded set of GitHub delivery IDs we've already accepted, so a redelivered or
+# replayed webhook is acknowledged without running the pipeline twice. In-memory
+# and per-process (fine for a single-instance deployment); the HMAC check is the
+# actual anti-forgery control, this is idempotency + defense in depth.
+_SEEN_DELIVERIES: "OrderedDict[str, None]" = OrderedDict()
+_SEEN_MAX = 2048
+
+
+def _already_processed(delivery_id: str) -> bool:
+    if not delivery_id:
+        return False
+    if delivery_id in _SEEN_DELIVERIES:
+        _SEEN_DELIVERIES.move_to_end(delivery_id)
+        return True
+    _SEEN_DELIVERIES[delivery_id] = None
+    while len(_SEEN_DELIVERIES) > _SEEN_MAX:
+        _SEEN_DELIVERIES.popitem(last=False)
+    return False
+
+
 async def process_guardrail(payload: dict) -> None:
     try:
         await asyncio.wait_for(webhook_handler.handle_pr_event(payload), timeout=AGENT_TIMEOUT_SECONDS)
@@ -127,6 +148,8 @@ async def handle_webhook(
     request: Request,
     background_tasks: BackgroundTasks,
     x_hub_signature_256: str = Header(None),
+    x_github_event: str = Header(None),
+    x_github_delivery: str = Header(None),
 ):
     payload_body = await request.body()
     if WEBHOOK_SECRET and not verify_signature(payload_body, x_hub_signature_256):
@@ -136,6 +159,12 @@ async def handle_webhook(
         payload = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="Malformed JSON payload") from None
+
+    if _already_processed(x_github_delivery):
+        return {"status": "duplicate", "message": f"Delivery {x_github_delivery} already processed"}
+
+    if x_github_event and x_github_event != "pull_request":
+        return {"status": "ignored", "message": f"Event '{x_github_event}' is not a pull_request event"}
 
     if "pull_request" in payload and payload.get("action") in ["opened", "synchronize", "reopened"]:
         background_tasks.add_task(process_guardrail, payload)

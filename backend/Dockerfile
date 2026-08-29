@@ -13,8 +13,9 @@ COPY . .
 ENV PORT=8000
 EXPOSE 8000
 
-# Run as a non-root user.
 RUN useradd --create-home --uid 1000 appuser && chown -R appuser /app
 USER appuser
 
-CMD ["sh", "-c", "exec uvicorn guardrail_main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# The webhook server IS the production entrypoint. `python -m pipelineai webhook`
+# binds uvicorn to 0.0.0.0:$PORT and prints a startup summary.
+CMD ["sh", "-c", "exec python -m pipelineai webhook --host 0.0.0.0 --port ${PORT:-8000}"]

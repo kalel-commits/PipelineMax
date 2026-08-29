@@ -151,3 +151,44 @@ def test_webhook_rejects_malformed_json_body(app_client):
         headers={"X-Hub-Signature-256": sig, "Content-Type": "application/json"},
     )
     assert resp.status_code == 400
+
+
+def test_webhook_deduplicates_redelivered_delivery_id(app_client, monkeypatch):
+    client, module = app_client
+    payload = {
+        "action": "opened",
+        "pull_request": {"number": 7, "head": {"sha": "s", "ref": "f"}},
+        "repository": {"name": "r", "owner": {"login": "o"}},
+    }
+    body = json.dumps(payload).encode()
+    sig = _sign("test-secret", body)
+    calls = []
+
+    async def fake_handle_pr_event(p):
+        calls.append(p)
+        return {"verdict": "ALLOW"}
+
+    monkeypatch.setattr(module.webhook_handler, "handle_pr_event", fake_handle_pr_event)
+    hdrs = {"X-Hub-Signature-256": sig, "Content-Type": "application/json",
+            "X-GitHub-Delivery": "delivery-uuid-123", "X-GitHub-Event": "pull_request"}
+
+    first = client.post("/webhook", content=body, headers=hdrs)
+    second = client.post("/webhook", content=body, headers=hdrs)  # replay / redelivery
+
+    assert first.json()["status"] == "accepted"
+    assert second.json()["status"] == "duplicate"
+    assert len(calls) == 1  # pipeline ran exactly once
+
+
+def test_webhook_ignores_non_pull_request_event_header(app_client):
+    client, _ = app_client
+    payload = {"action": "opened", "pull_request": {"number": 1}}
+    body = json.dumps(payload).encode()
+    resp = client.post(
+        "/webhook",
+        content=body,
+        headers={"X-Hub-Signature-256": _sign("test-secret", body),
+                 "Content-Type": "application/json", "X-GitHub-Event": "push"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ignored"
